@@ -4,219 +4,389 @@ var dbHandler = require('./DBBackendHandler.js');
 var amqpPublisher = require('./AMQPPublisher.js').PublishToQueue;
 var logger = require('dvp-common/LogHandler/CommonLogHandler.js').logger;
 var redisHandler = require('./RedisHandler.js');
+var async = require('async');
+
+var addRedisObjects = function(mainLegId, objList, callback)
+{
+    redisHandler.AddSetWithExpire('UUID_MAP_' + mainLegId, objList, 86400, function(addSetErr, addSetRes)
+    {
+        var tempKeyValPair = {};
+
+        objList.forEach(function(obj)
+        {
+            tempKeyValPair[obj] = mainLegId;
+        });
+
+        redisHandler.MSetObject(tempKeyValPair, function(mSetErr, mSetRes)
+        {
+            objList.forEach(function(expireKey)
+            {
+                redisHandler.ExpireKey(expireKey, 86400);
+            })
+
+            callback(null, true);
+
+        })
+
+
+    });
+};
+
+var processBLegs = function(legInfo, cdrListArr, callback)
+{
+    var legType = legInfo.ObjType;
+
+    if(legType && (legType === 'ATT_XFER_USER' || legType === 'ATT_XFER_GATEWAY'))
+    {
+        //check for Originated Legs
+
+        if(legInfo.OriginatedLegs)
+        {
+            var decodedLegsStr = decodeURIComponent(legInfo.OriginatedLegs);
+
+            var formattedStr = decodedLegsStr.replace("ARRAY::", "");
+
+            var legsUnformattedList = formattedStr.split('|:');
+
+            if(legsUnformattedList && legsUnformattedList.length > 0)
+            {
+                var legProperties = legsUnformattedList[0].split(';');
+
+                var legUuid = legProperties[0];
+
+                dbHandler.GetSpecificLegByUuid(legUuid, function (err, transferLeg)
+                {
+                    cdrListArr.push(legInfo);
+
+                    if(transferLeg)
+                    {
+                        var tempTransLeg = transferLeg.toJSON();
+                        tempTransLeg.IsTransferredParty = true;
+                        cdrListArr.push(tempTransLeg);
+                        callback(null, null);
+                    }
+                    else
+                    {
+                        tempTransLegNotFound.push(legUuid);
+                        callback(null, 'UUID_' + legUuid);
+                    }
+
+                });
+
+
+            }
+            else
+            {
+                callback(null, null);
+            }
+        }
+        else
+        {
+            callback(null, null);
+        }
+
+    }
+    else
+    {
+        callback(null, null);
+    }
+};
 
 var collectBLegs = function(cdrListArr, uuid, callUuid, callback)
 {
-    dbHandler.GetBLegsForIVRCalls(uuid, callUuid, function(allLegsFound, legInfo, missingLeg)
+    var actionObj = {};
+    dbHandler.GetBLegsForIVRCalls(uuid, callUuid, function(err, legInfo)
     {
-        var tempTransLegNotFound = [];
-        if(allLegsFound)
+        if(legInfo && legInfo.length > 0)
         {
+            //DATA FOUND NEED TO COMPARE
 
-            var len = legInfo.length;
-            var current = 0;
+            var asyncArr = [];
 
             for(i=0; i<legInfo.length; i++)
             {
-                var legType = legInfo[i].ObjType;
+                asyncArr.push(processBLegs.bind(this, legInfo[i], cdrListArr));
+            }
 
-                if(legType && (legType === 'ATT_XFER_USER' || legType === 'ATT_XFER_GATEWAY'))
+            async.parallel(asyncArr, function(err, missingOriginatedLegs)
+            {
+                var cleanedUpList = missingOriginatedLegs.filter(function(missingLeg) { return missingLeg });
+                cleanedUpList.push('CALL_UUID_' + callUuid);
+
+                redisHandler.GetSetMembers('UUID_MAP_' + uuid, function(err, missingLegsRedis)
                 {
-                    //check for Originated Legs
-
-                    if(legInfo[i].OriginatedLegs)
+                    if(missingLegsRedis && missingLegsRedis.length > 0)
                     {
-                        var decodedLegsStr = decodeURIComponent(legInfo[i].OriginatedLegs);
-
-                        var formattedStr = decodedLegsStr.replace("ARRAY::", "");
-
-                        var legsUnformattedList = formattedStr.split('|:');
-
-                        if(legsUnformattedList && legsUnformattedList.length > 0)
+                        var allItemsAlreadyAdded = true;
+                        cleanedUpList.forEach(function(missingOrigLeg)
                         {
-                            var legProperties = legsUnformattedList[0].split(';');
+                            var index = missingLegsRedis.indexOf(missingOrigLeg);
+                            if (index <= -1) {
+                                allItemsAlreadyAdded = false;
+                            }
 
-                            var legUuid = legProperties[0];
+                        });
 
-                            dbHandler.GetSpecificLegByUuid(legUuid, function (err, transferLeg)
-                            {
-                                cdrListArr.push(legInfo[i]);
+                        if(!allItemsAlreadyAdded)
+                        {
+                            //ADD TO REDIS
+                            addRedisObjects(uuid, cleanedUpList, function(err, redisAddResult){
 
-                                if(transferLeg)
-                                {
-                                    var tempTransLeg = transferLeg.toJSON();
-                                    tempTransLeg.IsTransferredParty = true;
-                                    cdrListArr.push(tempTransLeg);
-                                }
-                                else
-                                {
-                                    tempTransLegNotFound.push(legUuid);
-                                }
+                                //CALLBACK
+                                actionObj.AddToQueue = true;
+                                actionObj.RemoveFromRedis = false;
+                                actionObj.SaveOnDB = true;
 
-                                current++;
+                                callback(null, actionObj);
 
-                                if(current === len)
-                                {
-                                    if(tempTransLegNotFound.length > 0)
-                                    {
-                                        if(tryCount === 10)
-                                        {
-                                            //ADD TO REDIS
-                                            redisHandler.SetObjectWithExpire('UUID_' + legUuid, uuid, 86400);
-                                            redisHandler.AddSetWithExpire('UUID_MAP_' + uuid, 'UUID_' + legUuid, 86400);
-                                        }
-                                    }
-                                    callback(null, tempTransLegNotFound.length === 0);
-                                }
                             });
-
 
                         }
                         else
                         {
-                            current++;
+                            actionObj.AddToQueue = false;
+                            actionObj.RemoveFromRedis = false;
+                            actionObj.SaveOnDB = true;
 
-                            cdrListArr.push(legInfo[i]);
-
-                            if(current === len)
-                            {
-                                callback(null, true);
-                            }
+                            callback(null, actionObj);
                         }
+
+
                     }
                     else
                     {
-                        current++;
+                        //ADD TO REDIS
 
-                        cdrListArr.push(legInfo[i]);
+                        addRedisObjects(uuid, cleanedUpList, function(err, redisAddResult){
 
-                        if(current === len)
-                        {
-                            callback(null, true);
-                        }
+                            //CALLBACK
+                            actionObj.AddToQueue = true;
+                            actionObj.RemoveFromRedis = false;
+                            actionObj.SaveOnDB = true;
+
+                            callback(null, actionObj);
+
+                        });
                     }
 
+                });
+            });
+        }
+        else
+        {
+            var simpleBLegArr = [];
+            simpleBLegArr.push('CALL_UUID_' + callUuid);
+
+            redisHandler.GetSetMembers('UUID_MAP_' + uuid, function(err, missingLegsRedis)
+            {
+                if(missingLegsRedis && missingLegsRedis.length > 0)
+                {
+                    var allItemsAlreadyAdded = true;
+                    var index = missingLegsRedis.indexOf('CALL_UUID_' + callUuid);
+                    if (index <= -1) {
+                        allItemsAlreadyAdded = false;
+                    }
+
+                    if(!allItemsAlreadyAdded)
+                    {
+                        //ADD TO REDIS
+                        addRedisObjects(uuid, simpleBLegArr, function(err, redisAddResult){
+
+                            //CALLBACK
+                            actionObj.AddToQueue = true;
+                            actionObj.RemoveFromRedis = false;
+                            actionObj.SaveOnDB = true;
+
+                            callback(null, actionObj);
+
+                        });
+
+                    }
+                    else
+                    {
+                        actionObj.AddToQueue = false;
+                        actionObj.RemoveFromRedis = false;
+                        actionObj.SaveOnDB = true;
+
+                        callback(null, actionObj);
+                    }
 
                 }
                 else
                 {
-                    current++;
+                    //ADD TO REDIS
 
-                    cdrListArr.push(legInfo[i]);
+                    addRedisObjects(uuid, simpleBLegArr, function(err, redisAddResult){
 
-                    if(current === len)
-                    {
-                        callback(null, true);
-                    }
+                        //CALLBACK
+                        actionObj.AddToQueue = true;
+                        actionObj.RemoveFromRedis = false;
+                        actionObj.SaveOnDB = true;
+
+                        callback(null, actionObj);
+
+                    });
                 }
-            }
 
+            });
+        }
+    })
+};
+
+var processOriginatedLegs = function(legInfo, cdrListArr, callback)
+{
+    var legType = legInfo.ObjType;
+
+    if(legType && (legType === 'ATT_XFER_USER' || legType === 'ATT_XFER_GATEWAY'))
+    {
+        if(legInfo.OriginatedLegs)
+        {
+            var decodedLegsStr = decodeURIComponent(legInfo.OriginatedLegs);
+
+            var formattedStr = decodedLegsStr.replace("ARRAY::", "");
+
+            var legsUnformattedList = formattedStr.split('|:');
+
+            if (legsUnformattedList && legsUnformattedList.length > 0)
+            {
+                var legProperties = legsUnformattedList[0].split(';');
+
+                var legUuid = legProperties[0];
+
+                dbHandler.GetSpecificLegByUuid(legUuid, function (err, transferLeg)
+                {
+                    cdrListArr.push(legInfo);
+
+                    if(transferLeg)
+                    {
+                        var tempTransLeg = transferLeg.toJSON();
+                        tempTransLeg.IsTransferredParty = true;
+                        cdrListArr.push(tempTransLeg);
+                        callback(null, null);
+                    }
+                    else
+                    {
+                        callback(null, 'UUID_' + legUuid);
+                    }
+
+                })
+            }
+            else
+            {
+                cdrListArr.push(legInfo);
+                callback(null, null);
+            }
         }
         else
         {
-            //ADD TO QUEUE
-            if(tryCount === 10)
-            {
-                //ADD TO REDIS
-                redisHandler.SetObjectWithExpire('CALL_UUID_' + missingLeg, uuid, 86400);
-                redisHandler.AddSetWithExpire('UUID_MAP_' + uuid, 'CALL_UUID_' + missingLeg, 86400);
-            }
-            callback(null, false);
+            cdrListArr.push(legInfo);
+            callback(null, null);
         }
-
-
-    })
+    }
+    else
+    {
+        cdrListArr.push(legInfo);
+        callback(null, null);
+    }
 };
 
 var collectOtherLegsCDR = function(cdrListArr, relatedLegs, tryCount, mainLegId, callback)
 {
+    var actionObj = {};
     dbHandler.GetSpecificLegsByUuids(relatedLegs, function(allLegsFound, objList)
     {
         if(allLegsFound)
         {
             //LOOP THROUGH LEGS LIST
-            var len = Object.keys(relatedLegs).length;
 
-            var count = 0;
-
-            var tempTransLegNotFound = [];
+            var asyncArr = [];
 
             objList.forEach(function(legInfo)
             {
-                var legType = legInfo.ObjType;
+                asyncArr.push(processOriginatedLegs.bind(this, legInfo, cdrListArr));
+            });
 
-                if(legType && (legType === 'ATT_XFER_USER' || legType === 'ATT_XFER_GATEWAY'))
+            async.parallel(asyncArr, function(err, missingLegsList){
+                if(missingLegsList)
                 {
-                    if(legInfo.OriginatedLegs)
+                    //CHECK MISSING LEG ALREADY ADDED
+                    var cleanedUpList = missingLegsList.filter(function(missingLeg) { return missingLeg });
+
+                    if(cleanedUpList && cleanedUpList.length > 0)
                     {
-                        var decodedLegsStr = decodeURIComponent(legInfo.OriginatedLegs);
+                        //DO REDIS COMPARE
 
-                        var formattedStr = decodedLegsStr.replace("ARRAY::", "");
-
-                        var legsUnformattedList = formattedStr.split('|:');
-
-                        if (legsUnformattedList && legsUnformattedList.length > 0)
+                        redisHandler.GetSetMembers('UUID_MAP_' + mainLegId, function(err, missingLegsRedis)
                         {
-                            var legProperties = legsUnformattedList[0].split(';');
-
-                            var legUuid = legProperties[0];
-
-                            dbHandler.GetSpecificLegByUuid(legUuid, function (err, transferLeg)
+                            if(missingLegsRedis && missingLegsRedis.length > 0)
                             {
-                                cdrListArr.push(legInfo);
-
-                                if(transferLeg)
+                                var allItemsAlreadyAdded = true;
+                                cleanedUpList.forEach(function(missingOrigLeg)
                                 {
-                                    var tempTransLeg = transferLeg.toJSON();
-                                    tempTransLeg.IsTransferredParty = true;
-                                    cdrListArr.push(tempTransLeg);
+                                    var index = missingLegsRedis.indexOf(missingOrigLeg);
+                                    if (index <= -1) {
+                                        allItemsAlreadyAdded = false;
+                                    }
+
+                                });
+
+                                if(!allItemsAlreadyAdded)
+                                {
+                                    //ADD TO REDIS
+                                    addRedisObjects(mainLegId, cleanedUpList, function(err, redisAddResult){
+
+                                        //CALLBACK
+                                        actionObj.AddToQueue = true;
+                                        actionObj.RemoveFromRedis = false;
+                                        actionObj.SaveOnDB = true;
+
+                                        callback(null, actionObj);
+
+                                    });
+
                                 }
                                 else
                                 {
-                                    tempTransLegNotFound.push(legUuid);
+                                    actionObj.AddToQueue = false;
+                                    actionObj.RemoveFromRedis = false;
+                                    actionObj.SaveOnDB = true;
+
+                                    callback(null, actionObj);
                                 }
 
-                                count++;
 
-                                if(count === len)
-                                {
-                                    callback(null, tempTransLegNotFound.length === 0);
-                                }
-                            })
-                        }
-                        else
-                        {
-                            cdrListArr.push(legInfo);
-                            count++;
-
-                            if(count === len)
-                            {
-                                callback(null, true);
                             }
-                        }
+                            else
+                            {
+                                //ADD TO REDIS
+                                addRedisObjects(mainLegId, cleanedUpList, function(err, redisAddResult){
+
+                                    //CALLBACK
+                                    actionObj.AddToQueue = true;
+                                    actionObj.RemoveFromRedis = false;
+                                    actionObj.SaveOnDB = true;
+
+                                    callback(null, actionObj);
+
+                                });
+                            }
+
+                        });
                     }
                     else
                     {
-                        cdrListArr.push(legInfo);
-                        count++;
+                        //ALL OK PROCESS
 
-                        if(count === len)
-                        {
-                            callback(null, true);
-                        }
+                        actionObj.AddToQueue = false;
+                        actionObj.RemoveFromRedis = true;
+                        actionObj.SaveOnDB = true;
+
+                        callback(null, actionObj);
+
                     }
-                }
-                else
-                {
-                    cdrListArr.push(legInfo);
-                    count++;
 
-                    if(count === len)
-                    {
-                        callback(null, true);
-                    }
-                }
 
+                }
             });
 
         }
@@ -224,115 +394,40 @@ var collectOtherLegsCDR = function(cdrListArr, relatedLegs, tryCount, mainLegId,
         {
             //PUT BACK TO QUEUE
 
-            if(tryCount === 10)
+            redisHandler.GetSetMembers('UUID_MAP_' + mainLegId, function(err, items)
             {
-                //ADD TO REDIS
-                var waitForUuid = objList[0];
-                redisHandler.SetObjectWithExpire('UUID_' + waitForUuid, mainLegId, 86400);
-                redisHandler.AddSetWithExpire('UUID_MAP_' + mainLegId, 'UUID_' + waitForUuid, 86400);
-            }
-            callback(null, false);
+                //If redis has already added items no need to compare set to remove from queue
+
+                if(items && items.length > 0)
+                {
+                    actionObj.AddToQueue = false;
+                    actionObj.RemoveFromRedis = false;
+                    actionObj.SaveOnDB = true;
+
+                    callback(null, actionObj);
+                }
+                else
+                {
+                    //ADD TO REDIS
+                    addRedisObjects(mainLegId, objList, function(err, addResult)
+                    {
+
+                        actionObj.AddToQueue = true;
+                        actionObj.RemoveFromRedis = false;
+                        actionObj.SaveOnDB = true;
+
+                        callback(null, actionObj);
+
+                    });
+
+                }
+
+
+            });
         }
 
     });
 
-
-
-
-    /*var len = Object.keys(relatedLegs).length;
-
-    var count = 0;
-
-    for(legUuid in relatedLegs)
-    {
-        dbHandler.getSpecificLegByUuid(legUuid, function(err, legInfo)
-        {
-            if(legInfo)
-            {
-                var legType = legInfo.ObjType;
-
-                if(legType && (legType === 'ATT_XFER_USER' || legType === 'ATT_XFER_GATEWAY'))
-                {
-                    if(legInfo.OriginatedLegs)
-                    {
-                        var decodedLegsStr = decodeURIComponent(legInfo.OriginatedLegs);
-
-                        var formattedStr = decodedLegsStr.replace("ARRAY::", "");
-
-                        var legsUnformattedList = formattedStr.split('|:');
-
-                        if (legsUnformattedList && legsUnformattedList.length > 0)
-                        {
-                            var legProperties = legsUnformattedList[0].split(';');
-
-                            var legUuid = legProperties[0];
-
-                            dbHandler.getSpecificLegByUuid(legUuid, function (err, transferLeg)
-                            {
-                                cdrListArr.push(legInfo);
-
-                                if(transferLeg)
-                                {
-                                    var tempTransLeg = transferLeg.toJSON();
-                                    tempTransLeg.IsTransferredParty = true;
-                                    cdrListArr.push(tempTransLeg);
-                                }
-
-                                count++;
-
-                                if(count === len)
-                                {
-                                    callback(null, true);
-                                }
-                            })
-                        }
-                        else
-                        {
-                            cdrListArr.push(legInfo);
-                            count++;
-
-                            if(count === len)
-                            {
-                                callback(null, true);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        cdrListArr.push(legInfo);
-                        count++;
-
-                        if(count === len)
-                        {
-                            callback(null, true);
-                        }
-                    }
-                }
-                else
-                {
-                    cdrListArr.push(legInfo);
-                    count++;
-
-                    if(count === len)
-                    {
-                        callback(null, true);
-                    }
-                }
-
-
-            }
-            else
-            {
-                count++;
-
-                if(count === len)
-                {
-                    callback(null, true);
-                }
-            }
-        })
-
-    }*/
 };
 
 var processCDRLegs = function(processedCdr, cdrList, callback)
@@ -349,10 +444,11 @@ var processCDRLegs = function(processedCdr, cdrList, callback)
 
     if(processedCdr.RelatedLegs && relatedLegsLength)
     {
-        collectOtherLegsCDR(cdrList[processedCdr.Uuid], processedCdr.RelatedLegs, processedCdr.TryCount, processedCdr.Uuid, function(err, resp)
+        console.log('=============== ORIGINATED LEGS PROCESSING =================');
+        collectOtherLegsCDR(cdrList[processedCdr.Uuid], processedCdr.RelatedLegs, processedCdr.TryCount, processedCdr.Uuid, function(err, actionObj)
         {
             //Response will return false if leg need to be added back to queue
-            callback(null, cdrList, resp);
+            callback(null, cdrList, actionObj);
 
         })
     }
@@ -360,18 +456,24 @@ var processCDRLegs = function(processedCdr, cdrList, callback)
     {
         if(processedCdr.ObjType === 'HTTAPI' || processedCdr.ObjType === 'SOCKET' || processedCdr.ObjCategory === 'DIALER')
         {
-            collectBLegs(cdrList[processedCdr.Uuid], processedCdr.Uuid, processedCdr.CallUuid, function(err, resp)
+            console.log('=============== HTTAPI LEGS PROCESSING =================');
+            collectBLegs(cdrList[processedCdr.Uuid], processedCdr.Uuid, processedCdr.CallUuid, function(err, actionObj)
             {
-
-                callback(null, cdrList, resp);
+                callback(null, cdrList, actionObj);
             })
 
         }
         else
         {
-            callback(null, cdrList, true);
-        }
+            console.log('================== UNKNOWN TYPE LEG CALL FOUND PROCESSING AS IT IS - UUID : ' + processedCdr.Uuid + ' ==================');
 
+            var tempActionObj1 = {
+                AddToQueue: false,
+                RemoveFromRedis: false,
+                SaveOnDB: true
+            };
+            callback(null, cdrList, tempActionObj1);
+        }
 
     }
 
@@ -417,6 +519,198 @@ var decodeOriginatedLegs = function(cdr)
     }
 };
 
+var processCampaignCDR = function(primaryLeg, curCdr)
+{
+    var cdrAppendObj = {};
+    var callHangupDirectionA = '';
+    var callHangupDirectionB = '';
+    var isOutboundTransferCall = false;
+    var holdSecTemp = 0;
+
+    var callCategory = '';
+
+
+    //Need to filter out inbound and outbound legs before processing
+
+    var firstLeg = primaryLeg;
+
+    if(firstLeg)
+    {
+        //Process First Leg
+        callHangupDirectionA = firstLeg.HangupDisposition;
+
+        if(firstLeg.ObjType === 'ATT_XFER_USER' || firstLeg.ObjType === 'ATT_XFER_GATEWAY')
+        {
+            isOutboundTransferCall = true;
+        }
+
+        cdrAppendObj.Uuid = firstLeg.Uuid;
+        cdrAppendObj.RecordingUuid = firstLeg.Uuid;
+        cdrAppendObj.CallUuid = firstLeg.CallUuid;
+        cdrAppendObj.BridgeUuid = firstLeg.BridgeUuid;
+        cdrAppendObj.SwitchName = firstLeg.SwitchName;
+        cdrAppendObj.SipFromUser = firstLeg.SipFromUser;
+        cdrAppendObj.SipToUser = firstLeg.SipToUser;
+        cdrAppendObj.RecievedBy = firstLeg.SipToUser;
+        cdrAppendObj.CallerContext = firstLeg.CallerContext;
+        cdrAppendObj.HangupCause = firstLeg.HangupCause;
+        cdrAppendObj.CreatedTime = firstLeg.CreatedTime;
+        cdrAppendObj.Duration = firstLeg.Duration;
+        cdrAppendObj.BridgedTime = firstLeg.BridgedTime;
+        cdrAppendObj.HangupTime = firstLeg.HangupTime;
+        cdrAppendObj.AppId = firstLeg.AppId;
+        cdrAppendObj.CompanyId = firstLeg.CompanyId;
+        cdrAppendObj.TenantId = firstLeg.TenantId;
+        cdrAppendObj.ExtraData = firstLeg.ExtraData;
+        cdrAppendObj.IsQueued = firstLeg.IsQueued;
+        cdrAppendObj.IsAnswered = false;
+        cdrAppendObj.CampaignName = firstLeg.CampaignName;
+        cdrAppendObj.CampaignId = firstLeg.CampaignId;
+        cdrAppendObj.BillSec = 0;
+        cdrAppendObj.HoldSec = 0;
+        cdrAppendObj.ProgressSec = 0;
+        cdrAppendObj.FlowBillSec = 0;
+        cdrAppendObj.ProgressMediaSec = 0;
+        cdrAppendObj.WaitSec = 0;
+        cdrAppendObj.AnswerSec = 0;
+
+        holdSecTemp = holdSecTemp + firstLeg.HoldSec;
+
+        if(firstLeg.ObjType === 'BLAST' || firstLeg.ObjType === 'DIRECT' || firstLeg.ObjType === 'IVRCALLBACK')
+        {
+            cdrAppendObj.BillSec = firstLeg.BillSec;
+            cdrAppendObj.AnswerSec = firstLeg.AnswerSec;
+            callHangupDirectionB = firstLeg.HangupDisposition;
+            cdrAppendObj.IsAnswered = firstLeg.IsAnswered;
+        }
+        if(firstLeg.ObjType === 'AGENT')
+        {
+            cdrAppendObj.AgentAnswered = firstLeg.IsAnswered;
+        }
+
+        cdrAppendObj.DVPCallDirection = 'outbound';
+
+
+        holdSecTemp = holdSecTemp + firstLeg.HoldSec;
+
+
+        if(firstLeg.ProgressSec)
+        {
+            cdrAppendObj.ProgressSec = firstLeg.ProgressSec;
+        }
+
+        if(firstLeg.FlowBillSec)
+        {
+            cdrAppendObj.FlowBillSec = firstLeg.FlowBillSec;
+        }
+
+        if(firstLeg.ProgressMediaSec)
+        {
+            cdrAppendObj.ProgressMediaSec = firstLeg.ProgressMediaSec;
+        }
+
+        if(firstLeg.WaitSec)
+        {
+            cdrAppendObj.WaitSec = firstLeg.WaitSec;
+        }
+
+        cdrAppendObj.QueueSec = firstLeg.QueueSec;
+        cdrAppendObj.AgentSkill = firstLeg.AgentSkill;
+
+        cdrAppendObj.AnswerSec = firstLeg.AnswerSec;
+        cdrAppendObj.AnsweredTime = firstLeg.AnsweredTime;
+
+        cdrAppendObj.ObjType = firstLeg.ObjType;
+        cdrAppendObj.ObjCategory = firstLeg.ObjCategory;
+    }
+
+    //process other legs
+
+    var otherLegs = curCdr.filter(function (item) {
+        if (item.ObjCategory !== 'DIALER') {
+            return true;
+        }
+        else {
+            return false;
+        }
+
+    });
+
+    if(otherLegs && otherLegs.length > 0)
+    {
+        var customerLeg = otherLegs.find(function (item) {
+            if (item.ObjType === 'CUSTOMER') {
+                return true;
+            }
+            else {
+                return false;
+            }
+
+        });
+
+        var agentLeg = otherLegs.find(function (item) {
+            if (item.ObjType === 'AGENT' || item.ObjType === 'PRIVATE_USER') {
+                return true;
+            }
+            else {
+                return false;
+            }
+
+        });
+
+        if(customerLeg)
+        {
+            cdrAppendObj.BillSec = customerLeg.BillSec;
+            cdrAppendObj.AnswerSec = customerLeg.AnswerSec;
+
+            holdSecTemp = holdSecTemp + customerLeg.HoldSec;
+
+            callHangupDirectionB = customerLeg.HangupDisposition;
+
+            cdrAppendObj.IsAnswered = customerLeg.IsAnswered;
+
+            cdrAppendObj.IsQueued = customerLeg.IsQueued;
+
+        }
+
+        if(agentLeg)
+        {
+            holdSecTemp = holdSecTemp + agentLeg.HoldSec;
+            callHangupDirectionB = agentLeg.HangupDisposition;
+            cdrAppendObj.RecievedBy = agentLeg.SipToUser;
+
+            if(firstLeg.ObjType !== 'AGENT')
+            {
+                cdrAppendObj.AgentAnswered = agentLeg.IsAnswered;
+            }
+        }
+
+        cdrAppendObj.HoldSec = holdSecTemp;
+        cdrAppendObj.IvrConnectSec = 0;
+
+    }
+
+    if(!cdrAppendObj.IsAnswered)
+    {
+        cdrAppendObj.AnswerSec = cdrAppendObj.Duration;
+    }
+
+
+    if (callHangupDirectionA === 'recv_bye') {
+        cdrAppendObj.HangupParty = 'CALLER';
+    }
+    else if (callHangupDirectionB === 'recv_bye') {
+        cdrAppendObj.HangupParty = 'CALLEE';
+    }
+    else {
+        cdrAppendObj.HangupParty = 'SYSTEM';
+    }
+
+
+    return cdrAppendObj;
+
+};
+
 var processSingleCdrLeg = function(primaryLeg, callback)
 {
     var cdr = decodeOriginatedLegs(primaryLeg);
@@ -424,9 +718,9 @@ var processSingleCdrLeg = function(primaryLeg, callback)
     var cdrList = {};
 
     //processCDRLegs method should immediately stop execution and return missing leg uuids or return the related cdr legs
-    processCDRLegs(cdr, cdrList, function(err, resp, allLegsFound)
+    processCDRLegs(cdr, cdrList, function(err, resp, actionObj)
     {
-        if(allLegsFound)
+        if(actionObj.SaveOnDB)
         {
             var cdrAppendObj = {};
             var primaryLeg = cdr;
@@ -441,7 +735,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
             if(cdr.ObjCategory === 'DIALER')
             {
-                cdrAppendObj =  processCampaignCDR(cdr, curCdr);
+                cdrAppendObj =  processCampaignCDR(primaryLeg, curCdr);
             }
             else
             {
@@ -772,26 +1066,14 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
             dbHandler.AddProcessedCDR(cdrAppendObj, function(err, addResp)
             {
-                //REMOVE REDIS OBJECTS
-                redisHandler.GetSetMembers('UUID_MAP_' + cdrAppendObj.Uuid, function(err, items)
-                {
-                    items.forEach(function(item){
-                        redisHandler.DeleteObject(item);
-                    });
-
-                    redisHandler.DeleteObject('UUID_MAP_' + cdrAppendObj.Uuid);
-
-                    callback(null, true);
-
-                });
+                callback(err, actionObj);
 
             });
         }
         else
         {
-            callback(null, false);
+            callback(null, actionObj);
         }
-
 
 
     })
@@ -835,19 +1117,30 @@ connection.on('ready', function()
 
         // Receive messages
         q.subscribe(function (message) {
-            
+
             console.log('================ CDR RECEIVED FROM QUEUE - UUID : ' + message.Uuid + ' ================');
 
-            processSingleCdrLeg(message, function(err, queueNotNeeded)
+            processSingleCdrLeg(message, function(err, actionObj)
             {
-                if(!queueNotNeeded)
+                if(actionObj.RemoveFromRedis)
+                {
+                    //REMOVE REDIS OBJECTS
+                    redisHandler.GetSetMembers('UUID_MAP_' + cdrAppendObj.Uuid, function(err, items)
+                    {
+                        items.forEach(function(item){
+                            redisHandler.DeleteObject(item);
+                        });
+
+                        redisHandler.DeleteObject('UUID_MAP_' + cdrAppendObj.Uuid);
+
+                    });
+                }
+
+                if(actionObj.AddToQueue)
                 {
                     message.TryCount++;
 
-                    if(message.TryCount <= 20)
-                    {
-                        setTimeout(amqpPublisher, 3000, 'CDRQUEUE', message);
-                    }
+                    setTimeout(amqpPublisher, 3000, 'CDRQUEUE', message);
 
                 }
             })

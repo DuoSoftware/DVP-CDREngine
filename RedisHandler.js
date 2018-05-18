@@ -1,6 +1,7 @@
 var redis = require("ioredis");
 var Config = require('config');
 var logger = require('dvp-common/LogHandler/CommonLogHandler.js').logger;
+var Redlock = require('redlock');
 
 
 var redisip = Config.Redis.ip;
@@ -16,7 +17,7 @@ var redisSetting =  {
     host:redisip,
     family: 4,
     password: redispass,
-    db: 2,
+    db: '2',
     retryStrategy: function (times) {
         var delay = Math.min(times * 50, 2000);
         return delay;
@@ -83,6 +84,24 @@ if(redismode != "cluster") {
 
 }
 
+var redlock = new Redlock(
+    [client],
+    {
+        driftFactor: 0.01,
+
+        retryCount:  10000,
+
+        retryDelay:  200
+
+    }
+);
+
+redlock.on('clientError', function(err)
+{
+    logger.error('[DVP-CDREngine.AcquireLock] - [%s] - REDIS LOCK FAILED', err);
+
+});
+
 var SetObject = function(key, value)
 {
     try
@@ -101,6 +120,40 @@ var SetObject = function(key, value)
         logger.error('[DVP-CDRProcessor.SetObject] - REDIS ERROR', ex)
     }
 
+};
+
+var MSetObject = function(keyValPair, callback)
+{
+    try
+    {
+        client.mset(keyValPair, function(err, response)
+        {
+            if(err)
+            {
+                logger.error('[DVP-CDRProcessor.SetObject] - REDIS ERROR', err)
+            }
+
+            callback(err, response);
+        });
+
+    }
+    catch(ex)
+    {
+        logger.error('[DVP-CDRProcessor.SetObject] - REDIS ERROR', ex);
+        callback(ex, null);
+    }
+
+};
+
+var ExpireKey = function(key, timeout)
+{
+    client.expire(key, timeout, function(err, reply)
+    {
+        if (err)
+        {
+            logger.error('[DVP-CDRProcessor.ExpireKey] - [%s] - REDIS ERROR', err);
+        }
+    });
 };
 
 var SetObjectWithExpire = function(key, value, timeout)
@@ -133,7 +186,7 @@ var SetObjectWithExpire = function(key, value, timeout)
 
 };
 
-var AddSetWithExpire = function(setId, item, timeout)
+var AddSetWithExpire = function(setId, item, timeout, callback)
 {
     try
     {
@@ -145,13 +198,16 @@ var AddSetWithExpire = function(setId, item, timeout)
                 {
                     logger.error('[DVP-CDRProcessor.ExpireKey] - [%s] - REDIS ERROR', err);
                 }
+
+                callback(err, reply);
             });
         });
 
     }
     catch(ex)
     {
-        logger.error('[DVP-CDRProcessor.SetObjectWithExpire] - REDIS ERROR', ex)
+        logger.error('[DVP-CDRProcessor.SetObjectWithExpire] - REDIS ERROR', ex);
+        callback(ex, 0);
     }
 
 };
@@ -252,3 +308,6 @@ module.exports.SetObjectWithExpire = SetObjectWithExpire;
 module.exports.AddSetWithExpire = AddSetWithExpire;
 module.exports.GetObject = GetObject;
 module.exports.GetSetMembers = GetSetMembers;
+module.exports.ExpireKey = ExpireKey;
+module.exports.MSetObject = MSetObject;
+module.exports.redlock = redlock;

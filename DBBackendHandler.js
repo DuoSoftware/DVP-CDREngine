@@ -1,4 +1,5 @@
 var dbModel = require('dvp-dbmodels');
+var redlock = require('./RedisHandler.js').redlock;
 
 var GetSpecificLegsByUuids = function(uuidList, callback)
 {
@@ -10,7 +11,7 @@ var GetSpecificLegsByUuids = function(uuidList, callback)
 
         uuidList.forEach(function(uuid)
         {
-            tempUuidList.push(uuid);
+            tempUuidList.push('UUID_' + uuid);
             query.where[0].$or.push({Uuid: uuid})
         });
 
@@ -20,7 +21,7 @@ var GetSpecificLegsByUuids = function(uuidList, callback)
             {
                 callLegs.forEach(function(callLeg)
                 {
-                    var index = tempUuidList.indexOf(callLeg.Uuid);
+                    var index = tempUuidList.indexOf('UUID_' + callLeg.Uuid);
                     if (index > -1) {
                         tempUuidList.splice(index, 1);
                     }
@@ -82,15 +83,11 @@ var GetBLegsForIVRCalls = function(uuid, callUuid, callback)
         {
             if(callLegs.length > 0)
             {
-                callback(true, callLegs, null);
+                callback(null, callLegs);
             }
             else
             {
-                var missingLeg = {
-                    CallUuid: callUuid,
-                    Uuid: uuid
-                };
-                callback(false, callLegs, missingLeg);
+                callback(null, callLegs);
             }
 
         });
@@ -99,7 +96,7 @@ var GetBLegsForIVRCalls = function(uuid, callUuid, callback)
     catch(ex)
     {
         var emptyArr = [];
-        callback(false, emptyArr, null);
+        callback(ex, emptyArr);
     }
 };
 
@@ -107,28 +104,77 @@ var AddProcessedCDR = function(cdrObj, callback)
 {
     try
     {
-        dbModel.CallCDRProcessed.find({where :[{Uuid: cdrObj.Uuid}]}).then(function(processedCdr)
+        var ttl = 5000;
+        var lockKey = 'CDRUUIDLOCK:' + cdrObj.Uuid;
+
+        redlock.lock(lockKey, ttl).then(function(lock)
         {
-            if(!processedCdr)
+            try
             {
-                var cdr = dbModel.CallCDRProcessed.build(cdrObj);
-
-                cdr
-                    .save()
-                    .then(function (rsp)
-                    {
-                        callback(null, true);
-
-                    }).catch(function(err)
+                dbModel.CallCDRProcessed.find({where :[{Uuid: cdrObj.Uuid}]}).then(function(processedCdr)
                 {
-                    callback(err, false);
-                })
+                    if(!processedCdr)
+                    {
+                        console.log('================ SAVING CDR =================');
+                        var cdr = dbModel.CallCDRProcessed.build(cdrObj);
+
+                        cdr
+                            .save()
+                            .then(function (rsp)
+                            {
+                                lock.unlock()
+                                    .catch(function(err) {
+                                        logger.error('[DVP-Common.addClusterToCache] - [%s] - REDIS LOCK RELEASE FAILED', err);
+                                    });
+                                callback(null, true);
+
+                            }).catch(function(err)
+                        {
+                            lock.unlock()
+                                .catch(function(err) {
+                                    logger.error('[DVP-Common.addClusterToCache] - [%s] - REDIS LOCK RELEASE FAILED', err);
+                                });
+                            callback(err, false);
+                        })
+                    }
+                    else
+                    {
+                        console.log('================ UPDATING CDR =================');
+                        processedCdr.updateAttributes(cdrObj).then(function (resUpdate)
+                        {
+
+                            callback(null, true);
+                            lock.unlock()
+                                .catch(function(err) {
+                                    logger.error('[DVP-Common.addClusterToCache] - [%s] - REDIS LOCK RELEASE FAILED', err);
+                                });
+
+                        }).catch(function (err)
+                        {
+
+                            callback(err, false);
+                            lock.unlock()
+                                .catch(function(err) {
+                                    logger.error('[DVP-Common.addClusterToCache] - [%s] - REDIS LOCK RELEASE FAILED', err);
+                                });
+
+                        });
+
+                    }
+
+                });
+
+            }
+            catch(dbOpEx)
+            {
+                lock.unlock()
+                    .catch(function(err) {
+                        logger.error('[DVP-Common.addClusterToCache] - [%s] - REDIS LOCK RELEASE FAILED', err);
+                    });
+                callback(dbOpEx, false);
             }
 
         });
-
-
-
     }
     catch(ex)
     {
