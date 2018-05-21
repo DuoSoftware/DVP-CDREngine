@@ -17,7 +17,7 @@ var redisSetting =  {
     host:redisip,
     family: 4,
     password: redispass,
-    db: '2',
+    db: 2,
     retryStrategy: function (times) {
         var delay = Math.min(times * 50, 2000);
         return delay;

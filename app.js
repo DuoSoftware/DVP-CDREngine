@@ -67,7 +67,6 @@ var processBLegs = function(legInfo, cdrListArr, callback)
                     }
                     else
                     {
-                        tempTransLegNotFound.push(legUuid);
                         callback(null, 'UUID_' + legUuid);
                     }
 
@@ -77,17 +76,20 @@ var processBLegs = function(legInfo, cdrListArr, callback)
             }
             else
             {
+                cdrListArr.push(legInfo);
                 callback(null, null);
             }
         }
         else
         {
+            cdrListArr.push(legInfo);
             callback(null, null);
         }
 
     }
     else
     {
+        cdrListArr.push(legInfo);
         callback(null, null);
     }
 };
@@ -1125,13 +1127,13 @@ connection.on('ready', function()
                 if(actionObj.RemoveFromRedis)
                 {
                     //REMOVE REDIS OBJECTS
-                    redisHandler.GetSetMembers('UUID_MAP_' + cdrAppendObj.Uuid, function(err, items)
+                    redisHandler.GetSetMembers('UUID_MAP_' + message.Uuid, function(err, items)
                     {
                         items.forEach(function(item){
                             redisHandler.DeleteObject(item);
                         });
 
-                        redisHandler.DeleteObject('UUID_MAP_' + cdrAppendObj.Uuid);
+                        redisHandler.DeleteObject('UUID_MAP_' + message.Uuid);
 
                     });
                 }

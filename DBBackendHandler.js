@@ -9,7 +9,7 @@ var GetSpecificLegsByUuids = function(uuidList, callback)
 
         var tempUuidList = [];
 
-        uuidList.forEach(function(uuid)
+        Object.keys(uuidList).forEach(function(uuid)
         {
             tempUuidList.push('UUID_' + uuid);
             query.where[0].$or.push({Uuid: uuid})
