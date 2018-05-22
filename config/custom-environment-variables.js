@@ -44,25 +44,6 @@ module.exports = {
 
     },
 
-    "Services":
-    {
-
-        "fileServiceHost": "SYS_FILESERVICE_HOST",
-        "fileServicePort": "SYS_FILESERVICE_PORT",
-        "fileServiceVersion":"SYS_FILESERVICE_VERSION"
-
-    },
-
-    "Mongo":
-    {
-        "ip":"SYS_MONGO_HOST",
-        "port":"SYS_MONGO_PORT",
-        "dbname":"SYS_MONGO_DB",
-        "password":"SYS_MONGO_PASSWORD",
-        "user":"SYS_MONGO_USER",
-        "replicaset" :"SYS_MONGO_REPLICASETNAME"
-    },
-
     "RabbitMQ":
     {
         "ip": "SYS_RABBITMQ_HOST",
@@ -77,6 +58,5 @@ module.exports = {
         "Version":"HOST_VERSION"
     },
 
-    "Token": "HOST_TOKEN",
-    "SaveRawCDRMongo": "HOST_SAVE_CDR_MONGO"
+    "Token": "HOST_TOKEN"
 };
