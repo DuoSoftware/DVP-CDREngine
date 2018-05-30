@@ -39,7 +39,7 @@ if(redismode == 'sentinel'){
 
                 sentinelConnections.push({host: item, port:Config.Redis.sentinels.port})
 
-            })
+            });
 
             redisSetting = {
                 sentinels:sentinelConnections,

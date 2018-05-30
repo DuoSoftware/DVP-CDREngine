@@ -6,6 +6,7 @@ var logger = require('dvp-common/LogHandler/CommonLogHandler.js').logger;
 var redisHandler = require('./RedisHandler.js');
 var async = require('async');
 
+
 var addRedisObjects = function(mainLegId, objList, callback)
 {
     redisHandler.AddSetWithExpire('UUID_MAP_' + mainLegId, objList, 86400, function(addSetErr, addSetRes)
@@ -441,7 +442,7 @@ var processCDRLegs = function(processedCdr, cdrList, callback)
 
     if(processedCdr.RelatedLegs)
     {
-        relatedLegsLength = Object.keys(processedCdr.RelatedLegs).length;
+        relatedLegsLength = processedCdr.RelatedLegs.length;
     }
 
     if(processedCdr.RelatedLegs && relatedLegsLength)
@@ -497,7 +498,7 @@ var decodeOriginatedLegs = function(cdr)
 
             var legsUnformattedList = formattedStr.split('|:');
 
-            cdr.RelatedLegs = {};
+            cdr.RelatedLegs = [];
 
             for(j=0; j<legsUnformattedList.length; j++){
 
@@ -505,9 +506,9 @@ var decodeOriginatedLegs = function(cdr)
 
                 var legUuid = legProperties[0];
 
-                if(cdr.Uuid != legUuid && !cdr.RelatedLegs[legUuid]){
+                if(cdr.Uuid != legUuid && !(cdr.RelatedLegs.indexOf(legUuid) > -1)){
 
-                    cdr.RelatedLegs[legUuid] = legUuid;
+                    cdr.RelatedLegs.push(legUuid);
                 }
 
             }
@@ -629,35 +630,18 @@ var processCampaignCDR = function(primaryLeg, curCdr)
     //process other legs
 
     var otherLegs = curCdr.filter(function (item) {
-        if (item.ObjCategory !== 'DIALER') {
-            return true;
-        }
-        else {
-            return false;
-        }
+        return item.ObjCategory !== 'DIALER';
 
     });
 
     if(otherLegs && otherLegs.length > 0)
     {
         var customerLeg = otherLegs.find(function (item) {
-            if (item.ObjType === 'CUSTOMER') {
-                return true;
-            }
-            else {
-                return false;
-            }
-
+            return item.ObjType === 'CUSTOMER';
         });
 
         var agentLeg = otherLegs.find(function (item) {
-            if (item.ObjType === 'AGENT' || item.ObjType === 'PRIVATE_USER') {
-                return true;
-            }
-            else {
-                return false;
-            }
-
+            return (item.ObjType === 'AGENT' || item.ObjType === 'PRIVATE_USER');
         });
 
         if(customerLeg)
@@ -722,6 +706,10 @@ var processSingleCdrLeg = function(primaryLeg, callback)
     //processCDRLegs method should immediately stop execution and return missing leg uuids or return the related cdr legs
     processCDRLegs(cdr, cdrList, function(err, resp, actionObj)
     {
+        if(err)
+        {
+            logger.error('[DVP-CDRProcessor.processSingleCdrLeg] - [%s] - Error occurred while processing CDR Legs', err);
+        }
         if(actionObj.SaveOnDB)
         {
             var cdrAppendObj = {};
@@ -773,69 +761,43 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                 var transferCallOriginalCallLeg = null;
 
-                var transferLegB = [];
-                var actualTransferLegs = [];
+                var transLegInfo = {
+                    transferLegB: [],
+                    actualTransferLegs: []
+                };
 
-                if(isOutboundTransferCall)
+                filteredOutb.reduce(function(accumilator, currentValue)
                 {
-                    transferLegB = filteredOutb.filter(function (item)
+                    if(isOutboundTransferCall)
                     {
                         if (item.ObjType !== 'ATT_XFER_USER' && item.ObjType !== 'ATT_XFER_GATEWAY')
                         {
-                            return true;
+                            accumilator.transferLegB.push(currentValue);
                         }
                         else
                         {
-                            return false;
+                            accumilator.actualTransferLegs.push(currentValue);
                         }
 
-                    });
-
-                    actualTransferLegs = filteredOutb.filter(function (item)
-                    {
-                        if (item.ObjType === 'ATT_XFER_USER' || item.ObjType === 'ATT_XFER_GATEWAY')
-                        {
-                            return true;
-                        }
-                        else
-                        {
-                            return false;
-                        }
-
-                    });
-                }
-                else
-                {
-                    transferLegB = filteredOutb.filter(function (item)
+                    }
+                    else
                     {
                         if ((item.ObjType === 'ATT_XFER_USER' || item.ObjType === 'ATT_XFER_GATEWAY') && !item.IsTransferredParty)
                         {
-                            return true;
+                            accumilator.transferLegB.push(currentValue);
                         }
-                        else
+
+                        if(item.IsTransferredParty)
                         {
-                            return false;
+                            accumilator.actualTransferLegs.push(currentValue);
                         }
+                    }
+                    return accumilator;
 
-                    });
-
-                    actualTransferLegs = filteredOutb.filter(function (item)
-                    {
-                        if (item.IsTransferredParty)
-                        {
-                            return true;
-                        }
-                        else
-                        {
-                            return false;
-                        }
-
-                    });
-                }
+                }, transLegInfo);
 
 
-
-                if(transferLegB && transferLegB.length > 0)
+                if(transLegInfo.transferLegB && transLegInfo.transferLegB.length > 0)
                 {
 
                     var transferLegBAnswered = filteredOutb.filter(function (item) {
@@ -848,7 +810,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     }
                     else
                     {
-                        transferCallOriginalCallLeg = transferLegB[0];
+                        transferCallOriginalCallLeg = transLegInfo.transferLegB[0];
                     }
                 }
 
@@ -858,9 +820,9 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 {
                     secondaryLeg = transferCallOriginalCallLeg;
 
-                    for(k = 0; k < actualTransferLegs.length; k++)
+                    for(k = 0; k < transLegInfo.actualTransferLegs.length; k++)
                     {
-                        transferredParties = transferredParties + actualTransferLegs[k].SipToUser + ',';
+                        transferredParties = transferredParties + transLegInfo.actualTransferLegs[k].SipToUser + ',';
                     }
                 }
                 else
