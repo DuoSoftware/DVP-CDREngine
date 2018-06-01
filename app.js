@@ -770,7 +770,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 {
                     if(isOutboundTransferCall)
                     {
-                        if (item.ObjType !== 'ATT_XFER_USER' && item.ObjType !== 'ATT_XFER_GATEWAY')
+                        if (currentValue.ObjType !== 'ATT_XFER_USER' && currentValue.ObjType !== 'ATT_XFER_GATEWAY')
                         {
                             accumilator.transferLegB.push(currentValue);
                         }
@@ -782,12 +782,12 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     }
                     else
                     {
-                        if ((item.ObjType === 'ATT_XFER_USER' || item.ObjType === 'ATT_XFER_GATEWAY') && !item.IsTransferredParty)
+                        if ((currentValue.ObjType === 'ATT_XFER_USER' || currentValue.ObjType === 'ATT_XFER_GATEWAY') && !currentValue.IsTransferredParty)
                         {
                             accumilator.transferLegB.push(currentValue);
                         }
 
-                        if(item.IsTransferredParty)
+                        if(currentValue.IsTransferredParty)
                         {
                             accumilator.actualTransferLegs.push(currentValue);
                         }
