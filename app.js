@@ -1018,7 +1018,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 {
                     cdrAppendObj.HangupParty = 'CALLER';
                 }
-                else if (callHangupDirectionB === 'recv_bye' || callHangupDirectionA === 'recv_refuse')
+                else if (callHangupDirectionB === 'recv_bye' || callHangupDirectionB === 'recv_refuse')
                 {
                     cdrAppendObj.HangupParty = 'CALLEE';
                 }
