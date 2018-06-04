@@ -1014,7 +1014,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 cdrAppendObj.IsAnswered = outLegAnswered;
 
 
-                if (callHangupDirectionA === 'recv_bye')
+                if (callHangupDirectionA === 'recv_bye' || callHangupDirectionA === 'recv_refuse')
                 {
                     cdrAppendObj.HangupParty = 'CALLER';
                 }
