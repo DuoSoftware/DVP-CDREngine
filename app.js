@@ -594,9 +594,6 @@ var processCampaignCDR = function(primaryLeg, curCdr)
         cdrAppendObj.DVPCallDirection = 'outbound';
 
 
-        holdSecTemp = holdSecTemp + firstLeg.HoldSec;
-
-
         if(firstLeg.ProgressSec)
         {
             cdrAppendObj.ProgressSec = firstLeg.ProgressSec;
