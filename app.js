@@ -594,9 +594,6 @@ var processCampaignCDR = function(primaryLeg, curCdr)
         cdrAppendObj.DVPCallDirection = 'outbound';
 
 
-        holdSecTemp = holdSecTemp + firstLeg.HoldSec;
-
-
         if(firstLeg.ProgressSec)
         {
             cdrAppendObj.ProgressSec = firstLeg.ProgressSec;
@@ -770,7 +767,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 {
                     if(isOutboundTransferCall)
                     {
-                        if (item.ObjType !== 'ATT_XFER_USER' && item.ObjType !== 'ATT_XFER_GATEWAY')
+                        if (currentValue.ObjType !== 'ATT_XFER_USER' && currentValue.ObjType !== 'ATT_XFER_GATEWAY')
                         {
                             accumilator.transferLegB.push(currentValue);
                         }
@@ -782,12 +779,12 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     }
                     else
                     {
-                        if ((item.ObjType === 'ATT_XFER_USER' || item.ObjType === 'ATT_XFER_GATEWAY') && !item.IsTransferredParty)
+                        if ((currentValue.ObjType === 'ATT_XFER_USER' || currentValue.ObjType === 'ATT_XFER_GATEWAY') && !currentValue.IsTransferredParty)
                         {
                             accumilator.transferLegB.push(currentValue);
                         }
 
-                        if(item.IsTransferredParty)
+                        if(currentValue.IsTransferredParty)
                         {
                             accumilator.actualTransferLegs.push(currentValue);
                         }
@@ -1014,11 +1011,11 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 cdrAppendObj.IsAnswered = outLegAnswered;
 
 
-                if (callHangupDirectionA === 'recv_bye')
+                if (callHangupDirectionA === 'recv_bye' || callHangupDirectionA === 'recv_cancel')
                 {
                     cdrAppendObj.HangupParty = 'CALLER';
                 }
-                else if (callHangupDirectionB === 'recv_bye')
+                else if (callHangupDirectionB === 'recv_bye' || callHangupDirectionB === 'recv_refuse')
                 {
                     cdrAppendObj.HangupParty = 'CALLEE';
                 }
