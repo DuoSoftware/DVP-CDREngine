@@ -113,6 +113,7 @@ var collectBLegs = function(cdrListArr, uuid, callUuid, callback)
 
             async.parallel(asyncArr, function(err, missingOriginatedLegs)
             {
+
                 var cleanedUpList = missingOriginatedLegs.filter(function(missingLeg) { return missingLeg });
                 cleanedUpList.push('CALL_UUID_' + callUuid);
 
@@ -793,11 +794,25 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                 }, transLegInfo);
 
+                if(transLegInfo && transLegInfo.actualTransferLegs && transLegInfo.actualTransferLegs.length > 0 && transLegInfo.transferLegB && transLegInfo.transferLegB.length > 0)
+                {
+                    transLegInfo.actualTransferLegs.forEach(function(actualTransLeg)
+                    {
+                        var index = transLegInfo.transferLegB.map(function(e) { return e.Uuid }).indexOf(actualTransLeg.Uuid);
+
+                        if(index > -1)
+                        {
+                            transLegInfo.transferLegB.splice(index, 1);
+                        }
+
+                    })
+                }
+
 
                 if(transLegInfo.transferLegB && transLegInfo.transferLegB.length > 0)
                 {
 
-                    var transferLegBAnswered = filteredOutb.filter(function (item) {
+                    var transferLegBAnswered = transLegInfo.transferLegB.filter(function (item) {
                         return item.IsAnswered === true;
                     });
 
