@@ -963,7 +963,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                 if(cdrAppendObj.DVPCallDirection === 'inbound')
                 {
-                    cdrAppendObj.BillSec = primaryLeg.TimeAfterInitialBridge;
+                    cdrAppendObj.BillSec = primaryLeg.Duration - primaryLeg.TimeAfterInitialBridge;
                 }
 
 
