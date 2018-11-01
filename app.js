@@ -959,6 +959,12 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                 cdrAppendObj.ObjType = primaryLeg.ObjType;
                 cdrAppendObj.ObjCategory = primaryLeg.ObjCategory;
+                cdrAppendObj.TimeAfterInitialBridge = primaryLeg.TimeAfterInitialBridge;
+
+                if(cdrAppendObj.DVPCallDirection === 'inbound')
+                {
+                    cdrAppendObj.BillSec = primaryLeg.TimeAfterInitialBridge;
+                }
 
 
                 //process outbound legs next
@@ -983,7 +989,10 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                      cdrAppendObj.HoldSec = secondaryLeg.HoldSec;
                      }*/
 
-                    cdrAppendObj.BillSec = secondaryLeg.BillSec;
+                    if(cdrAppendObj.DVPCallDirection === 'outbound')
+                    {
+                        cdrAppendObj.BillSec = secondaryLeg.BillSec;
+                    }
 
                     if (!cdrAppendObj.ObjType)
                     {
