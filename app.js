@@ -848,7 +848,29 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                         if(filteredOutbAnswered && filteredOutbAnswered.length > 0)
                         {
-                            secondaryLeg = filteredOutbAnswered[0];
+                            if(filteredOutbAnswered.length > 1)
+                            {
+                                //check for bridged calles
+                                var filteredOutbBridged = filteredOutbAnswered.filter(function (item3)
+                                {
+                                    return item3.BridgedTime > new Date('1970-01-01');
+                                });
+
+                                if(filteredOutbBridged && filteredOutbBridged.length > 0)
+                                {
+                                    secondaryLeg = filteredOutbBridged[0];
+                                }
+                                else
+                                {
+                                    secondaryLeg = filteredOutbAnswered[0];
+                                }
+
+                            }
+                            else
+                            {
+                                secondaryLeg = filteredOutbAnswered[0];
+                            }
+
                         }
                         else
                         {
