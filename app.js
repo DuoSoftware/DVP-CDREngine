@@ -983,16 +983,15 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 cdrAppendObj.ObjCategory = primaryLeg.ObjCategory;
                 cdrAppendObj.TimeAfterInitialBridge = primaryLeg.TimeAfterInitialBridge;
 
-                if(cdrAppendObj.DVPCallDirection === 'inbound')
-                {
-                    cdrAppendObj.BillSec = primaryLeg.Duration - primaryLeg.TimeAfterInitialBridge;
-                }
-
-
                 //process outbound legs next
 
                 if(secondaryLeg)
                 {
+                    if(cdrAppendObj.DVPCallDirection === 'inbound')
+                    {
+                        cdrAppendObj.BillSec = primaryLeg.Duration - primaryLeg.TimeAfterInitialBridge;
+                    }
+
                     if(cdrAppendObj.DVPCallDirection === 'outbound')
                     {
                         cdrAppendObj.RecordingUuid = secondaryLeg.Uuid;
