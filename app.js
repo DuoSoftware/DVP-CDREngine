@@ -987,7 +987,12 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                 if(secondaryLeg)
                 {
-                    if(cdrAppendObj.DVPCallDirection === 'inbound')
+                    if (secondaryLeg.BillSec > 0)
+                    {
+                        outLegAnswered = true;
+                    }
+
+                    if(cdrAppendObj.DVPCallDirection === 'inbound' && outLegAnswered)
                     {
                         cdrAppendObj.BillSec = primaryLeg.Duration - primaryLeg.TimeAfterInitialBridge;
                     }
@@ -1023,11 +1028,6 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     if (!cdrAppendObj.ObjCategory)
                     {
                         cdrAppendObj.ObjCategory = secondaryLeg.ObjCategory;
-                    }
-
-                    if (secondaryLeg.BillSec > 0)
-                    {
-                        outLegAnswered = true;
                     }
 
                     cdrAppendObj.AnswerSec = secondaryLeg.AnswerSec;
