@@ -924,6 +924,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 cdrAppendObj.ExtraData = primaryLeg.ExtraData;
                 cdrAppendObj.IsQueued = primaryLeg.IsQueued;
                 cdrAppendObj.BusinessUnit = primaryLeg.BusinessUnit;
+                cdrAppendObj.QueuePriority = primaryLeg.QueuePriority;
 
                 cdrAppendObj.AgentAnswered = primaryLeg.AgentAnswered;
 
