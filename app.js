@@ -848,7 +848,29 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                         if(filteredOutbAnswered && filteredOutbAnswered.length > 0)
                         {
-                            secondaryLeg = filteredOutbAnswered[0];
+                            if(filteredOutbAnswered.length > 1)
+                            {
+                                //check for bridged calles
+                                var filteredOutbBridged = filteredOutbAnswered.filter(function (item3)
+                                {
+                                    return item3.BridgedTime > new Date('1970-01-01');
+                                });
+
+                                if(filteredOutbBridged && filteredOutbBridged.length > 0)
+                                {
+                                    secondaryLeg = filteredOutbBridged[0];
+                                }
+                                else
+                                {
+                                    secondaryLeg = filteredOutbAnswered[0];
+                                }
+
+                            }
+                            else
+                            {
+                                secondaryLeg = filteredOutbAnswered[0];
+                            }
+
                         }
                         else
                         {
@@ -902,6 +924,7 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                 cdrAppendObj.ExtraData = primaryLeg.ExtraData;
                 cdrAppendObj.IsQueued = primaryLeg.IsQueued;
                 cdrAppendObj.BusinessUnit = primaryLeg.BusinessUnit;
+                cdrAppendObj.QueuePriority = primaryLeg.QueuePriority;
 
                 cdrAppendObj.AgentAnswered = primaryLeg.AgentAnswered;
 
@@ -959,12 +982,22 @@ var processSingleCdrLeg = function(primaryLeg, callback)
 
                 cdrAppendObj.ObjType = primaryLeg.ObjType;
                 cdrAppendObj.ObjCategory = primaryLeg.ObjCategory;
-
+                cdrAppendObj.TimeAfterInitialBridge = primaryLeg.TimeAfterInitialBridge;
 
                 //process outbound legs next
 
                 if(secondaryLeg)
                 {
+                    if (secondaryLeg.BillSec > 0)
+                    {
+                        outLegAnswered = true;
+                    }
+
+                    if(cdrAppendObj.DVPCallDirection === 'inbound' && outLegAnswered)
+                    {
+                        cdrAppendObj.BillSec = primaryLeg.Duration - primaryLeg.TimeAfterInitialBridge;
+                    }
+
                     if(cdrAppendObj.DVPCallDirection === 'outbound')
                     {
                         cdrAppendObj.RecordingUuid = secondaryLeg.Uuid;
@@ -983,7 +1016,10 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                      cdrAppendObj.HoldSec = secondaryLeg.HoldSec;
                      }*/
 
-                    cdrAppendObj.BillSec = secondaryLeg.BillSec;
+                    if(cdrAppendObj.DVPCallDirection === 'outbound')
+                    {
+                        cdrAppendObj.BillSec = secondaryLeg.BillSec;
+                    }
 
                     if (!cdrAppendObj.ObjType)
                     {
@@ -993,11 +1029,6 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     if (!cdrAppendObj.ObjCategory)
                     {
                         cdrAppendObj.ObjCategory = secondaryLeg.ObjCategory;
-                    }
-
-                    if (secondaryLeg.BillSec > 0)
-                    {
-                        outLegAnswered = true;
                     }
 
                     cdrAppendObj.AnswerSec = secondaryLeg.AnswerSec;
