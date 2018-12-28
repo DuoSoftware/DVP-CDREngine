@@ -681,10 +681,10 @@ var processCampaignCDR = function(primaryLeg, curCdr)
 
 
     if (callHangupDirectionA === 'recv_bye' || callHangupDirectionA === 'recv_refuse') {
-        cdrAppendObj.HangupParty = 'CALLER';
+        cdrAppendObj.HangupParty = 'CALLEE';
     }
     else if (callHangupDirectionB === 'recv_bye' || callHangupDirectionB === 'recv_refuse') {
-        cdrAppendObj.HangupParty = 'CALLEE';
+        cdrAppendObj.HangupParty = 'CALLER';
     }
     else {
         cdrAppendObj.HangupParty = 'SYSTEM';
