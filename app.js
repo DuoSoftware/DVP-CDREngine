@@ -587,10 +587,6 @@ var processCampaignCDR = function(primaryLeg, curCdr)
             callHangupDirectionB = firstLeg.HangupDisposition;
             cdrAppendObj.IsAnswered = firstLeg.IsAnswered;
         }
-        if(firstLeg.ObjType === 'AGENT')
-        {
-            cdrAppendObj.AgentAnswered = firstLeg.IsAnswered;
-        }
 
         cdrAppendObj.DVPCallDirection = 'outbound';
 
