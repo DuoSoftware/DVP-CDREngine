@@ -657,7 +657,7 @@ var processCampaignCDR = function(primaryLeg, curCdr)
             holdSecTemp = holdSecTemp + agentLeg.HoldSec;
             callHangupDirectionB = agentLeg.HangupDisposition;
             cdrAppendObj.RecievedBy = agentLeg.SipToUser;
-            cdrAppendObj.AnswerSec = firstLeg.AnswerSec;
+            cdrAppendObj.AnswerSec = agentLeg.AnswerSec;
 
             if(firstLeg.ObjType !== 'AGENT')
             {
