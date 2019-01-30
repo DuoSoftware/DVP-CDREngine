@@ -577,19 +577,14 @@ var processCampaignCDR = function(primaryLeg, curCdr)
         cdrAppendObj.ProgressMediaSec = 0;
         cdrAppendObj.WaitSec = 0;
         cdrAppendObj.AnswerSec = 0;
+        cdrAppendObj.IsAnswered = firstLeg.IsAnswered;
+        cdrAppendObj.BillSec = firstLeg.BillSec;
 
         holdSecTemp = holdSecTemp + firstLeg.HoldSec;
 
         if(firstLeg.ObjType === 'BLAST' || firstLeg.ObjType === 'DIRECT' || firstLeg.ObjType === 'IVRCALLBACK')
         {
-            cdrAppendObj.BillSec = firstLeg.BillSec;
-            cdrAppendObj.AnswerSec = firstLeg.AnswerSec;
             callHangupDirectionB = firstLeg.HangupDisposition;
-            cdrAppendObj.IsAnswered = firstLeg.IsAnswered;
-        }
-        if(firstLeg.ObjType === 'AGENT')
-        {
-            cdrAppendObj.AgentAnswered = firstLeg.IsAnswered;
         }
 
         cdrAppendObj.DVPCallDirection = 'outbound';
@@ -661,11 +656,12 @@ var processCampaignCDR = function(primaryLeg, curCdr)
         {
             holdSecTemp = holdSecTemp + agentLeg.HoldSec;
             callHangupDirectionB = agentLeg.HangupDisposition;
-            cdrAppendObj.RecievedBy = agentLeg.SipToUser;
+            cdrAppendObj.AnswerSec = agentLeg.AnswerSec;
 
             if(firstLeg.ObjType !== 'AGENT')
             {
                 cdrAppendObj.AgentAnswered = agentLeg.IsAnswered;
+                cdrAppendObj.IsAnswered = agentLeg.IsAnswered;
             }
         }
 
@@ -680,11 +676,11 @@ var processCampaignCDR = function(primaryLeg, curCdr)
     }
 
 
-    if (callHangupDirectionA === 'recv_bye') {
-        cdrAppendObj.HangupParty = 'CALLER';
-    }
-    else if (callHangupDirectionB === 'recv_bye') {
+    if (callHangupDirectionA === 'recv_bye' || callHangupDirectionA === 'recv_refuse') {
         cdrAppendObj.HangupParty = 'CALLEE';
+    }
+    else if (callHangupDirectionB === 'recv_bye' || callHangupDirectionB === 'recv_refuse') {
+        cdrAppendObj.HangupParty = 'CALLER';
     }
     else {
         cdrAppendObj.HangupParty = 'SYSTEM';
