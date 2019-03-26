@@ -523,6 +523,19 @@ var decodeOriginatedLegs = function(cdr)
     }
 };
 
+var publishAbandonCallToQueue = function(obj)
+{
+    if(config.SendAbandonCallsToQueue && (config.SendAbandonCallsToQueue === true || config.SendAbandonCallsToQueue === 'true'))
+    {
+        //CHeck for abandon call
+        if(obj.ObjType === 'HTTAPI' && obj.DVPCallDirection === 'inbound' && obj.IsQueued === true && obj.AgentAnswered === false)
+        {
+            amqpPublisher('ABANDONED_CALLS', JSON.stringify(obj))
+        }
+    }
+
+};
+
 var processCampaignCDR = function(primaryLeg, curCdr)
 {
     var cdrAppendObj = {};
@@ -1066,6 +1079,8 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     cdrAppendObj.HangupParty = 'SYSTEM';
                 }
             }
+
+            publishAbandonCallToQueue(cdrAppendObj);
 
             dbHandler.AddProcessedCDR(cdrAppendObj, function(err, addResp)
             {

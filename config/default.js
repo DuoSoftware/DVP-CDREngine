@@ -63,5 +63,6 @@ module.exports = {
     "Version":"1.0.0.0"
   },
 
-  "Token":""
+  "Token":"",
+  "SendAbandonCallsToQueue":true
 };

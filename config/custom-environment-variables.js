@@ -58,5 +58,6 @@ module.exports = {
         "Version":"HOST_VERSION"
     },
 
-    "Token": "HOST_TOKEN"
+    "Token": "HOST_TOKEN",
+    "SendAbandonCallsToQueue":"HOST_USE_ABANDON_QUEUE"
 };
