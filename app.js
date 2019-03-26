@@ -530,7 +530,7 @@ var publishAbandonCallToQueue = function(obj)
         //CHeck for abandon call
         if(obj.ObjType === 'HTTAPI' && obj.DVPCallDirection === 'inbound' && obj.IsQueued === true && obj.AgentAnswered === false)
         {
-            amqpPublisher('ABANDONED_CALLS', JSON.stringify(obj))
+            amqpPublisher('ABANDONED_CALLS', obj)
         }
     }
 
