@@ -1,9 +1,9 @@
 var amqp = require('amqp');
 var config = require('config');
 var dbHandler = require('./DBBackendHandler.js');
-var amqpPublisher = require('./AMQPPublisher.js').PublishToQueue;
 var logger = require('dvp-common/LogHandler/CommonLogHandler.js').logger;
 var redisHandler = require('./RedisHandler.js');
+var amqpPublisher = require('./AMQPPublisher.js').PublishToQueue;
 var async = require('async');
 
 
@@ -523,22 +523,7 @@ var decodeOriginatedLegs = function(cdr)
     }
 };
 
-var publishAbandonCallToQueue = function(obj)
-{
-    logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - %s', JSON.stringify(obj));
-    logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - SendAbandonCallsToQueue : %s', JSON.stringify(obj), config.SendAbandonCallsToQueue);
-    if(config.SendAbandonCallsToQueue && (config.SendAbandonCallsToQueue === true || config.SendAbandonCallsToQueue === 'true'))
-    {
-        //CHeck for abandon call
-        logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - CHECK ABANDON');
-        if(obj.ObjType === 'HTTAPI' && obj.DVPCallDirection === 'inbound' && obj.IsQueued === true && obj.AgentAnswered === false)
-        {
-            logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - IS ABANDON CALL PUBLISH TO QUEUE');
-            amqpPublisher('ABANDONED_CALLS', obj)
-        }
-    }
 
-};
 
 var processCampaignCDR = function(primaryLeg, curCdr)
 {
@@ -1083,8 +1068,6 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                     cdrAppendObj.HangupParty = 'SYSTEM';
                 }
             }
-
-            publishAbandonCallToQueue(cdrAppendObj);
 
             dbHandler.AddProcessedCDR(cdrAppendObj, function(err, addResp)
             {
