@@ -102,23 +102,6 @@ var GetBLegsForIVRCalls = function(uuid, callUuid, callback)
     }
 };
 
-var publishAbandonCallToQueue = function(obj)
-{
-    logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - %s', JSON.stringify(obj));
-    logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - SendAbandonCallsToQueue : %s', JSON.stringify(obj), config.SendAbandonCallsToQueue);
-    if(config.SendAbandonCallsToQueue && (config.SendAbandonCallsToQueue === true || config.SendAbandonCallsToQueue === 'true'))
-    {
-        //CHeck for abandon call
-        logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - CHECK ABANDON');
-        if(obj.ObjType === 'HTTAPI' && obj.DVPCallDirection === 'inbound' && obj.IsQueued === true && obj.AgentAnswered === false)
-        {
-            logger.debug('[DVP-CDREngine.publishAbandonCallToQueue] - IS ABANDON CALL PUBLISH TO QUEUE');
-            amqpPublisher('ABANDONED_CALLS', obj)
-        }
-    }
-
-};
-
 var AddProcessedCDR = function(cdrObj, callback)
 {
     try
@@ -134,8 +117,6 @@ var AddProcessedCDR = function(cdrObj, callback)
                 {
                     if(!processedCdr)
                     {
-                        publishAbandonCallToQueue(cdrObj);
-
                         console.log('================ SAVING CDR =================');
                         var cdr = dbModel.CallCDRProcessed.build(cdrObj);
 
