@@ -6,6 +6,17 @@ var logger = require("dvp-common/LogHandler/CommonLogHandler.js").logger;
 var redisHandler = require("./RedisHandler.js");
 var async = require("async");
 let readyCount = 0;
+process.on("uncaughtException", function(err) {
+  console.error(err);
+  console.log("[Unhandled Exception] Node Exiting...");
+  process.exit(1);
+});
+
+process.on("unhandledRejection", err => {
+  console.error(err);
+  console.log("[Unhandled Rejection] Node Exiting...");
+  process.exit(1);
+});
 
 var addRedisObjects = function(mainLegId, objList, callback) {
   redisHandler.AddSetWithExpire(
