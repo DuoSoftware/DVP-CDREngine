@@ -989,6 +989,11 @@ var processSingleCdrLeg = function(primaryLeg, callback)
                         outLegAnswered = true;
                     }
 
+                    if( cdrAppendObj.BusinessUnit === 'default')
+                    {
+                        cdrAppendObj.BusinessUnit= secondaryLeg.BusinessUnit;
+                    }
+
                     if(cdrAppendObj.DVPCallDirection === 'inbound' && outLegAnswered)
                     {
                         cdrAppendObj.BillSec = primaryLeg.Duration - primaryLeg.TimeAfterInitialBridge;
