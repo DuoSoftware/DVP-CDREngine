@@ -40,8 +40,14 @@ module.exports = {
             "hosts": "SYS_REDIS_SENTINEL_HOSTS",
             "port":"SYS_REDIS_SENTINEL_PORT",
             "name":"SYS_REDIS_SENTINEL_NAME"
-        }
-
+        },
+        
+    "Services": 
+    {
+        "fileServiceHost": "SYS_FILESERVICE_HOST",
+        "fileServicePort": "SYS_FILESERVICE_PORT",
+        "fileServiceVersion": "SYS_FILESERVICE_VERSION"
+          
     },
 
     "RabbitMQ":
@@ -54,6 +60,7 @@ module.exports = {
     },
 
     "Host":{
+        "Ip": "HOST_NAME",
         "Port":"HOST_CDRENGINE_PORT",
         "Version":"HOST_VERSION"
     },
